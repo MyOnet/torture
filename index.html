@@ -1,0 +1,1709 @@
+<title>TASTENRAGE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #060a0b;
+    --bg-2: #0b1214;
+    --panel: rgba(16,24,26,0.7);
+    --panel-border: rgba(126,230,205,0.18);
+    --ink: #e9f5f1;
+    --ink-dim: #7f9c96;
+    --ink-faint: #4d6460;
+    --accent-live: #4ee6c8;
+    --accent-live-dim: rgba(78,230,200,0.35);
+    --danger: #ff2e4d;
+    --warn: #ff9d3d;
+    --glitch: #ff2ea6;
+    --font-display: 'Press Start 2P', 'Courier New', monospace;
+    --font-body: 'JetBrains Mono', 'Courier New', monospace;
+    --toxicity: 0;
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    min-height:100dvh;
+    background: radial-gradient(120% 140% at 50% -10%, var(--bg-2) 0%, var(--bg) 60%);
+    color: var(--ink);
+    font-family: var(--font-body);
+    overflow:hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection{ background: var(--accent-live); color:#04100d; }
+
+  button{ font-family: var(--font-body); cursor:pointer; }
+  button:focus-visible, a:focus-visible, input:focus-visible{
+    outline: 2px solid var(--accent-live);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  button:disabled{ opacity:0.4; cursor:not-allowed; }
+
+  /* ---------- background canvas + CRT overlay ---------- */
+  #bg{ position:fixed; inset:0; z-index:0; display:block; width:100%; height:100%; }
+  .scanlines{
+    position:fixed; inset:0; z-index:5; pointer-events:none;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 2px, transparent 3px);
+    mix-blend-mode: overlay; opacity: 0.55;
+  }
+  .vignette{
+    position:fixed; inset:0; z-index:6; pointer-events:none;
+    background: radial-gradient(120% 100% at 50% 50%, transparent 45%, rgba(0,0,0,0.35) 78%, rgba(0,0,0,0.72) 100%);
+    transition: background 0.6s ease;
+  }
+  .noise-flash{ position:fixed; inset:0; z-index:7; pointer-events:none; background: var(--glitch); opacity:0; }
+  .noise-flash.hit{ animation: flashHit 260ms ease-out; }
+  .noise-flash.miss{ animation: flashMiss 260ms ease-out; }
+  @keyframes flashHit{ 0%{opacity:0.16;} 100%{opacity:0;} }
+  @keyframes flashMiss{ 0%{opacity:0.28; background:var(--danger);} 100%{opacity:0;} }
+
+  /* ---------- app shell ---------- */
+  .app{
+    position:relative; z-index:2; height:100dvh;
+    display:flex; flex-direction:column;
+    padding: clamp(14px,3vw,32px); gap: clamp(10px,2vw,20px);
+  }
+  .app.shake{ animation: shake 320ms cubic-bezier(.36,.07,.19,.97); }
+  @keyframes shake{
+    10%,90%{ transform: translate3d(-1px,0,0); }
+    20%,80%{ transform: translate3d(3px,0,0); }
+    30%,50%,70%{ transform: translate3d(-7px,0,0); }
+    40%,60%{ transform: translate3d(7px,0,0); }
+  }
+  .app.glitch-pulse .stage{ animation: glitchClip 180ms steps(2,end); }
+  @keyframes glitchClip{
+    0%{ clip-path: inset(0 0 0 0); transform: translateX(0); filter: hue-rotate(0deg); }
+    20%{ clip-path: inset(10% 0 60% 0); transform: translateX(calc(-6px * var(--toxicity))); }
+    40%{ clip-path: inset(70% 0 5% 0); transform: translateX(calc(8px * var(--toxicity))); filter: hue-rotate(40deg); }
+    60%{ clip-path: inset(30% 0 40% 0); transform: translateX(calc(-4px * var(--toxicity))); }
+    100%{ clip-path: inset(0 0 0 0); transform: translateX(0); filter: hue-rotate(0deg); }
+  }
+
+  /* ---------- HUD ---------- */
+  .hud{ display:flex; align-items:center; justify-content:space-between; gap: 16px; font-size: 12px; letter-spacing: 0.06em; color: var(--ink-dim); flex-wrap: wrap; }
+  .hud-left{ font-family: var(--font-display); font-size: 10px; color: var(--accent-live); text-shadow: 0 0 8px var(--accent-live-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:44vw; }
+  .rage-meter{ flex:1 1 220px; max-width: 420px; display:flex; align-items:center; gap:10px; }
+  .rage-track{ position:relative; flex:1; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border); overflow:hidden; }
+  .rage-fill{ height:100%; width:0%; background: linear-gradient(90deg, #4ee6c8, var(--warn) 60%, var(--danger)); box-shadow: 0 0 12px var(--accent-live); transition: width 0.5s cubic-bezier(.2,.8,.2,1); }
+  .rage-label{ font-family: var(--font-display); font-size: 8px; color: var(--ink-faint); }
+  .hud-right{ display:flex; gap:6px; }
+  .icon-btn{
+    background: var(--panel); border: 1px solid var(--panel-border); color: var(--ink);
+    width:34px; height:34px; border-radius: 8px; display:flex; align-items:center; justify-content:center;
+    font-size: 15px; transition: border-color .2s, transform .15s; flex-shrink:0;
+  }
+  .icon-btn:hover{ border-color: var(--accent-live); transform: translateY(-1px); }
+
+  /* ---------- stage ---------- */
+  .stage{
+    position:relative; flex:1;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap: clamp(16px,3vh,28px); text-align:center; padding: 20px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.08));
+    border: 1px solid rgba(255,255,255,0.04);
+    min-height:0;
+  }
+
+  .flavor{
+    max-width: 62ch; font-size: clamp(15px, 2.4vw, 20px); line-height: 1.55; color: var(--ink);
+    min-height: 3.4em; display:flex; align-items:center; justify-content:center; text-wrap: balance;
+  }
+  .flavor span.reveal{ display:block; white-space:pre-line; animation: flavorIn 0.42s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes flavorIn{ from{ opacity:0; transform: translateY(8px); filter: blur(4px); } to{ opacity:1; transform: translateY(0); filter: blur(0); } }
+
+  .keycaps-wrap{ position:relative; }
+  .keycaps{
+    display:flex; align-items:center; justify-content:center; gap: clamp(8px, 1.8vw, 16px);
+    min-height: clamp(90px, 16vh, 150px); flex-wrap:wrap;
+    transition: transform .35s cubic-bezier(.3,.7,.3,1);
+  }
+  .plus{ font-family: var(--font-display); font-size: clamp(14px, 2.6vw, 22px); color: var(--ink-faint); }
+  .arrow{ font-size: clamp(16px, 3vw, 26px); color: var(--ink-faint); }
+  .keycap{
+    position:relative; font-family: var(--font-display); font-size: clamp(20px, 5vw, 40px); color: #04120f;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--accent-live) 92%, white 8%), var(--accent-live) 55%, color-mix(in srgb, var(--accent-live) 70%, black 30%));
+    padding: clamp(14px,2.6vw,26px) clamp(16px,3vw,30px); min-width: clamp(64px, 10vw, 96px);
+    border-radius: 14px;
+    box-shadow: 0 6px 0 color-mix(in srgb, var(--accent-live) 55%, black 45%), 0 14px 26px -8px var(--accent-live-dim), inset 0 1px 0 rgba(255,255,255,0.6);
+    transform: translateY(0); transition: transform .08s ease, box-shadow .08s ease, background .4s ease, opacity .3s ease;
+    user-select:none;
+  }
+  .keycap.small{ font-size: clamp(12px, 2.4vw, 17px); padding: clamp(12px,2vw,20px) clamp(12px,2.2vw,20px); }
+  .keycap.hit{ animation: capHit 320ms ease; }
+  .keycap.miss{ animation: capMiss 320ms ease; }
+  .keycap.seq-done{ opacity:0.32; transform: scale(0.88); }
+  .keycap.seq-active{ box-shadow: 0 6px 0 color-mix(in srgb, var(--accent-live) 55%, black 45%), 0 0 26px var(--accent-live); }
+  @keyframes capHit{ 0%{ transform: translateY(0); } 30%{ transform: translateY(6px); } 100%{ transform: translateY(0); } }
+  @keyframes capMiss{ 0%,100%{ transform: translateY(0) translateX(0); } 25%{ transform: translateY(2px) translateX(-4px); } 75%{ transform: translateY(2px) translateX(4px); } }
+
+  .streak-pop{
+    position:absolute; top:-4px; left:50%; font-family: var(--font-display); font-size: 14px; color: var(--warn);
+    opacity:0; pointer-events:none; white-space:nowrap;
+  }
+  .streak-pop.show{ animation: popUp 900ms ease forwards; }
+  @keyframes popUp{
+    0%{ opacity:0; transform:translate(-50%,-60%) scale(0.7); }
+    18%{ opacity:1; transform:translate(-50%,-130%) scale(1.15); }
+    100%{ opacity:0; transform:translate(-50%,-210%) scale(1); }
+  }
+
+  .hint{ font-size: 12px; letter-spacing: 0.04em; color: var(--ink-faint); min-height: 1.4em; }
+
+  .timer-bar{ width:min(70vw,340px); height:6px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; }
+  .timer-fill{ height:100%; width:0%; background: linear-gradient(90deg, var(--accent-live), var(--danger)); }
+
+  .field-input{
+    font-family: var(--font-body); font-size: 15px; color: var(--ink);
+    background: rgba(0,0,0,0.35); border: 1px solid var(--panel-border); border-radius: 10px;
+    padding: 12px 16px; text-align:center; width: min(80vw, 320px);
+  }
+  .field-input::placeholder{ color: var(--ink-faint); }
+  .field-input.field-ok{ border-color: var(--accent-live); }
+  .field-input.field-bad{ border-color: var(--danger); }
+
+  .text-form{ display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .text-form-row{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+
+  .skip{ background: transparent; border: 1px dashed var(--panel-border); color: var(--ink-dim); padding: 8px 16px; border-radius: 999px; font-size: 12px; transition: all .2s; }
+  .skip:hover{ color: var(--ink); border-color: var(--accent-live); }
+
+  .toast{
+    position:absolute; bottom: -6px; left:50%; transform: translate(-50%, 110%);
+    max-width: min(90vw, 56ch); background: var(--panel); border: 1px solid var(--panel-border);
+    backdrop-filter: blur(10px); padding: 12px 18px; border-radius: 12px; font-size: 13px; color: var(--ink);
+    opacity:0; transition: transform .4s cubic-bezier(.2,.8,.2,1), opacity .4s ease; pointer-events:none;
+  }
+  .toast.show{ transform: translate(-50%, 130%); opacity:1; }
+
+  /* chapter card */
+  .chapter-num{
+    font-family: var(--font-display); font-size: clamp(56px,16vw,140px); color: var(--accent-live);
+    opacity:0.16; line-height:1; user-select:none;
+  }
+  .chapter-title{ font-family: var(--font-display); font-size: clamp(17px,3.6vw,28px); color: var(--ink); text-shadow: 0 0 16px var(--accent-live-dim); letter-spacing: 0.05em; margin-top:-2.4em; }
+  .chapter-sub{ color: var(--ink-dim); font-size: 13px; max-width: 40ch; }
+
+  /* ---------- progress ---------- */
+  .progress-track{ height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow:hidden; flex-shrink:0; }
+  .progress-fill{ height:100%; width:0%; background: linear-gradient(90deg, #4ee6c8, var(--danger)); transition: width .5s cubic-bezier(.2,.8,.2,1); }
+
+  /* ---------- overlays ---------- */
+  .overlay{
+    position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(120% 140% at 50% -10%, var(--bg-2) 0%, var(--bg) 60%);
+    padding: 24px; text-align:center; overflow-y:auto;
+  }
+  .overlay[hidden]{ display:none; }
+  .overlay-card{ max-width: 640px; display:flex; flex-direction:column; align-items:center; gap: 18px; margin: auto; }
+  .logo{
+    font-family: var(--font-display); font-size: clamp(28px, 7vw, 56px); color: var(--accent-live);
+    text-shadow: 0 0 18px var(--accent-live-dim), 3px 0 var(--glitch), -3px 0 #4ee6c8;
+    letter-spacing: 0.02em; line-height: 1.3;
+    animation: logoFlicker 6s ease-in-out infinite;
+  }
+  @keyframes logoFlicker{
+    0%,92%,100%{ text-shadow: 0 0 18px var(--accent-live-dim), 3px 0 var(--glitch), -3px 0 #4ee6c8; }
+    93%{ text-shadow: 0 0 4px var(--accent-live-dim), 6px 0 var(--glitch), -6px 0 #4ee6c8; }
+    95%{ text-shadow: none; }
+    96%{ text-shadow: 0 0 24px var(--accent-live), 1px 0 var(--glitch), -1px 0 #4ee6c8; }
+  }
+  .tagline{ color: var(--ink-dim); font-size: 14px; max-width: 46ch; line-height: 1.6; }
+  .instructions{ font-size: 12px; color: var(--ink-faint); line-height: 1.8; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px; padding: 14px 20px; max-width: 50ch; }
+  .instructions b{ color: var(--ink); }
+  .mode-row{ display:flex; gap: 12px; flex-wrap:wrap; justify-content:center; }
+  .primary-btn{
+    font-family: var(--font-display); font-size: 12px; color: #04120f;
+    background: linear-gradient(160deg, #6ff2d8, var(--accent-live)); border: none; padding: 16px 30px; border-radius: 12px;
+    box-shadow: 0 8px 0 color-mix(in srgb, var(--accent-live) 55%, black 45%), 0 18px 30px -10px var(--accent-live-dim);
+    transition: transform .1s ease;
+  }
+  .primary-btn:active{ transform: translateY(6px); box-shadow: 0 2px 0 color-mix(in srgb, var(--accent-live) 55%, black 45%); }
+  .secondary-btn{
+    font-family: var(--font-display); font-size: 11px; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--panel-border); padding: 15px 24px; border-radius: 12px;
+    transition: border-color .2s, transform .15s;
+  }
+  .secondary-btn:hover{ border-color: var(--accent-live); transform: translateY(-2px); }
+  .link-btn{
+    background:none; border:none; color: var(--ink-dim); font-size: 12px; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .link-btn:hover{ color: var(--accent-live); }
+
+  .stats{ display:flex; gap: 22px; flex-wrap:wrap; justify-content:center; font-size: 12px; color: var(--ink-dim); }
+  .stats b{ display:block; font-family: var(--font-display); font-size: 20px; color: var(--ink); margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+  #endScreen .logo{ color: var(--danger); text-shadow: 0 0 22px rgba(255,46,77,0.55), 3px 0 var(--glitch), -3px 0 var(--warn); }
+  #gameOverScreen .logo{ color: var(--danger); text-shadow: 0 0 22px rgba(255,46,77,0.55), 3px 0 var(--glitch), -3px 0 var(--warn); }
+
+  .submit-row{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .submit-msg{ font-size:12px; color: var(--accent-live); min-height:1.2em; }
+
+  /* modal overlays (story select / admin / leaderboard) sit on top of whatever else is open */
+  .modal{
+    position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    background: rgba(4,7,8,0.86); backdrop-filter: blur(6px); padding:20px; overflow-y:auto;
+  }
+  .modal[hidden]{ display:none; }
+  .modal-card{
+    max-width: 620px; width:100%; display:flex; flex-direction:column; align-items:center; gap:16px;
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; padding: 28px 24px; text-align:center;
+  }
+
+  .story-cards{ display:flex; flex-direction:column; gap:12px; width:100%; }
+  .story-card{ background: rgba(0,0,0,0.25); border: 1px solid var(--panel-border); border-radius: 14px; padding: 16px 18px; text-align:left; display:flex; flex-direction:column; gap:6px; }
+  .story-card h3{ margin:0; font-family: var(--font-display); font-size: 13px; color: var(--accent-live); letter-spacing: 0.04em; }
+  .story-card p{ margin:0; font-size: 13px; color: var(--ink-dim); line-height:1.5; }
+  .story-card .meta{ font-size: 11px; color: var(--ink-faint); }
+  .story-card button{ align-self:flex-start; margin-top:4px; font-size:10px; padding:10px 18px; }
+
+  .tabs{ display:flex; gap:8px; }
+  .tab-btn{
+    font-family: var(--font-display); font-size:10px; color: var(--ink-dim); background: transparent;
+    border: 1px solid var(--panel-border); padding: 10px 16px; border-radius: 999px; transition: all .2s;
+  }
+  .tab-btn.active{ color: var(--ink); border-color: var(--accent-live); background: rgba(78,230,200,0.08); }
+
+  .lb-scroll{ width:100%; max-height: 46vh; overflow-y:auto; overflow-x:auto; border: 1px solid var(--panel-border); border-radius: 10px; }
+  .lb-table{ width:100%; border-collapse: collapse; font-size: 13px; }
+  .lb-table thead th{ position:sticky; top:0; background: var(--bg-2); color: var(--ink-faint); font-weight:600; font-size:11px; letter-spacing:0.05em; text-align:left; padding:8px 10px; border-bottom:1px solid var(--panel-border); }
+  .lb-table tbody{ counter-reset: rank; }
+  .lb-table tbody tr{ counter-increment: rank; }
+  .lb-table tbody tr:nth-child(odd){ background: rgba(255,255,255,0.02); }
+  .lb-table td{ padding:7px 10px; border-bottom:1px solid rgba(255,255,255,0.04); text-align:left; }
+  .lb-table td.rank::before{ content: counter(rank) '.'; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .lb-table td.value, .lb-table td.date{ font-variant-numeric: tabular-nums; color: var(--ink-dim); }
+  .lb-table tbody tr:first-child td.rank::before{ color: var(--warn); }
+  [artifact-sync-state="off"]{ opacity:0.7; }
+  .lb-note{ font-size:11px; color: var(--ink-faint); }
+
+  @media (max-width: 520px){
+    .hud{ font-size: 10px; }
+    .rage-meter{ order:3; flex-basis:100%; max-width:none; }
+    .hud-left{ max-width: 70vw; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  }
+</style>
+
+<canvas id="bg"></canvas>
+<div class="scanlines"></div>
+<div class="vignette" id="vignette"></div>
+<div class="noise-flash" id="flash"></div>
+
+<div class="app" id="app">
+  <header class="hud">
+    <div class="hud-left"><span id="hudLeftText">KAPITEL 01</span></div>
+    <div class="rage-meter">
+      <span class="rage-label">RAGE</span>
+      <div class="rage-track"><div class="rage-fill" id="rageFill"></div></div>
+    </div>
+    <div class="hud-right">
+      <button class="icon-btn" id="muteBtn" aria-pressed="false" title="Ton an/aus">🔊</button>
+      <button class="icon-btn" id="musicBtn" aria-pressed="false" title="Musik an/aus">🎵</button>
+      <button class="icon-btn" id="lbBtn" title="Bestenliste">🏆</button>
+      <button class="icon-btn" id="adminBtn" title="Admin">🔑</button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="flavor" id="flavor" aria-live="polite"></div>
+    <div class="keycaps-wrap">
+      <div class="streak-pop" id="streakPop"></div>
+      <div class="keycaps" id="keycaps"></div>
+    </div>
+    <div class="text-form" id="textForm" hidden>
+      <div class="text-form-row">
+        <input class="field-input" id="textInput" type="text" autocomplete="off" placeholder="Antwort…">
+        <button class="secondary-btn" id="textSubmitBtn">ABSENDEN</button>
+      </div>
+    </div>
+    <div class="timer-bar" id="timerBar" hidden><div class="timer-fill" id="timerFill"></div></div>
+    <div class="hint" id="hint"></div>
+    <button class="skip" id="skipBtn" hidden>kann ich nicht &rarr; weiter</button>
+    <div class="toast" id="toast"></div>
+  </main>
+
+  <footer class="progress-track"><div class="progress-fill" id="progressFill"></div></footer>
+</div>
+
+<div class="overlay" id="startScreen">
+  <div class="overlay-card">
+    <div class="logo">TASTEN<br>RAGE</div>
+    <p class="tagline">Drück immer genau die Taste, die dir gezeigt wird. Klingt einfach. Bleibt es nicht.</p>
+    <div class="instructions">
+      <b>So funktioniert's:</b> Taste(n) drücken, die angezeigt werden — exakt, nichts anderes.<br>
+      Rätsel, Merkspiele und Tipp-Duelle kommen dazu, je weiter du kommst.<br>
+      Am besten auf einer echten Tastatur spielen.<br>
+      Es wird <b>lauter, schneller, unhöflicher — und irgendwann unendlich.</b><br>
+      Es gibt einen Admin-Cheat-Code. Du kennst ihn vielleicht.
+    </div>
+    <div class="mode-row">
+      <button class="primary-btn" id="startBtn">GESCHICHTE STARTEN</button>
+      <button class="secondary-btn" id="startEndlessBtn">ENDLOS-MODUS</button>
+    </div>
+    <button class="link-btn" id="lbBtnStart">🏆 Bestenliste ansehen</button>
+  </div>
+</div>
+
+<div class="overlay" id="endScreen" hidden>
+  <div class="overlay-card">
+    <div class="logo" id="endLogo">GG</div>
+    <p class="tagline" id="endText"></p>
+    <div class="stats">
+      <div>ZEIT<b id="statTime">0:00</b></div>
+      <div>FEHLER<b id="statMiss">0</b></div>
+      <div>RAGE ERREICHT<b id="statRage">0%</b></div>
+    </div>
+    <div class="submit-row">
+      <div class="text-form-row">
+        <input class="field-input" id="storyNameInput" maxlength="18" placeholder="Dein Name">
+        <button class="secondary-btn" id="storySubmitBtn">ZEIT EINTRAGEN</button>
+      </div>
+      <div class="submit-msg" id="storySubmitMsg"></div>
+    </div>
+    <div class="mode-row">
+      <button class="primary-btn" id="goEndlessBtn">IN DIE EWIGKEIT</button>
+      <button class="secondary-btn" id="restartBtn">NOCHMAL</button>
+      <button class="secondary-btn" id="otherStoryBtn">ANDERE GESCHICHTE</button>
+    </div>
+    <button class="link-btn" id="viewLbFromEndBtn">🏆 Bestenliste ansehen</button>
+  </div>
+</div>
+
+<div class="overlay" id="gameOverScreen" hidden>
+  <div class="overlay-card">
+    <div class="logo">GAME<br>OVER</div>
+    <p class="tagline" id="gameOverText"></p>
+    <div class="stats">
+      <div>SCORE<b id="statScore">0</b></div>
+      <div>BESTE<b id="statBest">0</b></div>
+    </div>
+    <div class="submit-row">
+      <div class="text-form-row">
+        <input class="field-input" id="endlessNameInput" maxlength="18" placeholder="Dein Name">
+        <button class="secondary-btn" id="endlessSubmitBtn">SCORE EINTRAGEN</button>
+      </div>
+      <div class="submit-msg" id="endlessSubmitMsg"></div>
+    </div>
+    <div class="mode-row">
+      <button class="primary-btn" id="retryEndlessBtn">NOCHMAL</button>
+      <button class="secondary-btn" id="menuBtn">ZUM MENÜ</button>
+    </div>
+    <button class="link-btn" id="viewLbFromGameOverBtn">🏆 Bestenliste ansehen</button>
+  </div>
+</div>
+
+<div class="modal" id="storySelectOverlay" hidden>
+  <div class="modal-card">
+    <div class="logo" style="font-size:clamp(18px,4vw,26px)">WÄHLE DEINE GESCHICHTE</div>
+    <div class="story-cards" id="storyCards"></div>
+    <button class="secondary-btn" id="storySelectCloseBtn">ABBRECHEN</button>
+  </div>
+</div>
+
+<div class="modal" id="adminOverlay" hidden>
+  <div class="modal-card">
+    <div class="logo" style="font-size:clamp(18px,4vw,26px)">ADMIN</div>
+    <p class="tagline">Nur für Leute, die den Code kennen.</p>
+    <input class="field-input" id="adminInput" type="password" autocomplete="off" placeholder="Passwort">
+    <div class="mode-row">
+      <button class="primary-btn" id="adminSubmitBtn">FREISCHALTEN</button>
+      <button class="secondary-btn" id="adminCancelBtn">ABBRECHEN</button>
+    </div>
+    <div class="submit-msg" id="adminMsg"></div>
+  </div>
+</div>
+
+<div class="modal" id="leaderboardOverlay" hidden>
+  <div class="modal-card">
+    <div class="logo" style="font-size:clamp(18px,4vw,26px)">BESTENLISTE</div>
+    <div class="tabs">
+      <button class="tab-btn active" id="lbTabStory">GESCHICHTE</button>
+      <button class="tab-btn" id="lbTabEndless">ENDLOS</button>
+    </div>
+    <div class="lb-scroll">
+      <table class="lb-table" id="lbStoryTable">
+        <thead><tr><th></th><th>Name</th><th>Zeit</th><th>Datum</th></tr></thead>
+        <tbody artifact-sync id="lbStoryBody"><tr data-value="118000"><td class="rank"></td><td class="name">SYSTEM</td><td class="value">1:58</td><td class="date">—</td></tr></tbody>
+      </table>
+      <table class="lb-table" id="lbEndlessTable" hidden>
+        <thead><tr><th></th><th>Name</th><th>Score</th><th>Datum</th></tr></thead>
+        <tbody artifact-sync id="lbEndlessBody"><tr data-value="14"><td class="rank"></td><td class="name">SYSTEM</td><td class="value">14</td><td class="date">—</td></tr></tbody>
+      </table>
+    </div>
+    <div class="lb-note" id="lbNote"></div>
+    <button class="secondary-btn" id="lbCloseBtn">SCHLIESSEN</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = id => document.getElementById(id);
+
+  // running inside the Claude Artifact viewer? (native shared-doc leaderboard only works there)
+  const inClaude = !!(window.claude && typeof window.claude.use === 'function');
+
+  // ---- kvdb.io leaderboard config (used only OUTSIDE the Claude artifact viewer, e.g. GitHub Pages) ----
+  // Fill in your own bucket id from https://kvdb.io (create a bucket with your real email, confirm it,
+  // then paste the bucket id below). Leave as-is to run with a local-only leaderboard fallback.
+  const KVDB_BUCKET = 'YOUR_BUCKET_ID';
+  const KVDB_BASE = (KVDB_BUCKET && KVDB_BUCKET !== 'YOUR_BUCKET_ID') ? `https://kvdb.io/${KVDB_BUCKET}` : null;
+
+  /* ---------------------------------------------------------- */
+  /* level constructors                                          */
+  /* ---------------------------------------------------------- */
+  function shuffle(arr){
+    const a = arr.slice();
+    for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+    return a;
+  }
+  function keyLevel(letter, flavor, toxicity, opts){
+    opts = opts || {};
+    let labels;
+    if (opts.decoys){ labels = shuffle([letter].concat(opts.decoys)); }
+    else { labels = [opts.displayLabel || letter]; }
+    return {
+      kind:'key', toxicity, flavor, labels,
+      choice: !!opts.decoys,
+      moving: !!opts.moving, timedMs: opts.timedMs || null,
+      match: e => !e.ctrlKey && !e.altKey && !e.metaKey && e.key.toUpperCase() === letter
+    };
+  }
+  function comboLevel(opts){
+    const mods = opts.mods || {};
+    return {
+      kind:'combo', toxicity: opts.toxicity, flavor: opts.flavor, labels: opts.labels,
+      moving: !!opts.moving, timedMs: opts.timedMs || null,
+      match: e => !!e.ctrlKey === !!mods.ctrl && !!e.altKey === !!mods.alt && !!e.shiftKey === !!mods.shift &&
+                  e.key.toUpperCase() === opts.key.toUpperCase()
+    };
+  }
+  function sequenceLevel(letters, flavor, toxicity, opts){
+    opts = opts || {};
+    return { kind:'sequence', toxicity, flavor, letters: letters.slice(), timedMs: opts.timedMs || null, moving: !!opts.moving };
+  }
+  function simonLevel(letters, flavor, toxicity){
+    return { kind:'simon', toxicity, flavor, letters: letters.slice() };
+  }
+  function holdLevel(letter, holdMs, flavor, toxicity){
+    return { kind:'hold', toxicity, flavor, holdKey:letter, holdMs, labels:[letter] };
+  }
+  function resistLevel(letter, holdMs, flavor, toxicity){
+    return { kind:'resist', toxicity, flavor, letter, holdMs };
+  }
+  function riddleLevel(question, accept, flavor, toxicity){
+    return { kind:'riddle', toxicity, flavor: flavor || question, question, accept: accept.map(a=>a.toLowerCase()) };
+  }
+  function typeraceLevel(word, fallMs, flavor, toxicity){
+    return { kind:'typerace', toxicity, flavor, word, timedMs: fallMs };
+  }
+  function impossibleLevel(opts){
+    return { kind:'impossible', toxicity: opts.toxicity, flavor: opts.flavor, labels: opts.labels, reveal: opts.reveal };
+  }
+  function accentLevel(flavor, toxicity){
+    return {
+      kind:'accent', toxicity, flavor, labels: ['É','Ñ','Ü','…'],
+      match: e => {
+        // AltGr (used to type accents on many EU layouts) reports as ctrlKey+altKey
+        // both true at once in browsers - only reject a *lopsided* ctrl/alt (a real shortcut).
+        if (e.metaKey) return false;
+        if (e.ctrlKey !== e.altKey) return false;
+        const k = e.key;
+        if (k === 'Dead' || k === 'AltGraph' || k === 'Alt' || k === 'Control') return undefined;
+        if (Array.from(k).length !== 1) return undefined;
+        if (/^[a-zA-Z0-9]$/.test(k)) return false;
+        const stripped = Array.from(k.normalize('NFD'))
+          .filter(ch => { const cp = ch.codePointAt(0); return !(cp >= 0x0300 && cp <= 0x036f); })
+          .join('');
+        if (/^[a-zA-Z]$/.test(stripped)) return true;
+        return undefined;
+      }
+    };
+  }
+  function chapterCard(num, title, sub, toxicity){ return { kind:'chapter', num, title, sub, toxicity }; }
+  function messageLevel(text, toxicity){ return { kind:'message', flavor:text, toxicity }; }
+  function finalLevel(labels, matchFinal, hint, flavor, toxicity, endText){
+    return { kind:'final', toxicity, flavor, labels, matchFinal, hint, endText };
+  }
+
+  /* ---------------------------------------------------------- */
+  /* story 1: SYSTEM — corrupted terminal, ends in ALT+F4        */
+  /* ---------------------------------------------------------- */
+  const STORY_SYSTEM = [
+    chapterCard('01','AUFWÄRMEN','Tastatur-Kalibrierung läuft…', 0.02),
+    keyLevel('A', 'Hi. Ich bin TASTENRAGE. Drück A.', 0.02),
+    keyLevel('S', 'Kalibrierung läuft. Drück S.', 0.04),
+    keyLevel('D', 'Sauber. Nächste: D.', 0.06),
+    keyLevel('W', 'Du bist ein Naturtalent. Drück W.', 0.08),
+    keyLevel('Q', 'Ehrlich, das überrascht mich. Drück Q.', 0.10),
+    keyLevel('E', 'Ich hab noch nichts Interessantes gesagt. Kommt noch. Drück E.', 0.12),
+
+    chapterCard('02','ERSTE RISSE','Persönlichkeitsmodul wird geladen…', 0.15),
+    keyLevel('R', 'Weißt du, die meisten Spieler brechen so um Level zehn ab.', 0.16),
+    keyLevel('T', 'Du wirkst nicht wie die meisten Spieler.', 0.19),
+    keyLevel('Y', 'Das ist kein Kompliment. Nur eine Beobachtung.', 0.22),
+    keyLevel('U', 'Ich hab dich beobachtet. Du zögerst manchmal.', 0.25),
+    keyLevel('I', 'Kleine Pause gefällig? Ich warte gerne. Für immer, wenn’s sein muss.', 0.28),
+    sequenceLevel(['O','P'], 'Jetzt reicht eine Taste nicht mehr. O, dann P. Der Reihe nach.', 0.30),
+
+    chapterCard('03','MASKE FÄLLT','Filter werden deaktiviert…', 0.33),
+    comboLevel({ key:'A', mods:{shift:true}, labels:['SHIFT','A'], flavor:'Ein Finger reicht jetzt nicht mehr.', toxicity:0.36 }),
+    comboLevel({ key:'C', mods:{ctrl:true}, labels:['STRG','C'], flavor:'Kopieren. Wie originell du bist.', toxicity:0.39 }),
+    sequenceLevel(['F','G','H'], 'F, G, H. Zack zack. Ich hab nicht den ganzen Tag Zeit für dich.', 0.42),
+    holdLevel('K', 1100, 'Halt die Taste. Ich will dich ein bisschen leiden sehen.', 0.45),
+    comboLevel({ key:'V', mods:{ctrl:true}, labels:['STRG','V'], flavor:'Du tippst wie meine Oma nach drei Bier.', toxicity:0.48 }),
+    comboLevel({ key:'Tab', mods:{shift:true}, labels:['SHIFT','TAB'], flavor:'Ganz ehrlich? Skill Issue, digga.', toxicity:0.51 }),
+
+    chapterCard('04','KONTROLLVERLUST','Stabilität: 41% und fallend…', 0.53),
+    keyLevel('M', 'Halt still. Nein, warte — ICH halt nicht still.', 0.54, { moving:true }),
+    keyLevel('N', 'Tick, tack. Du hast nicht ewig, Süße oder Süßer.', 0.56, { timedMs:1800 }),
+    keyLevel('N', 'Ich zeig dir B. Ich mein aber N. Glaub dem Text, nicht dem Knopf.', 0.58, { displayLabel:'B' }),
+    comboLevel({ key:'T', mods:{alt:true,shift:true}, labels:['ALT','SHIFT','T'], flavor:'Verpiss dich fast, du Vollpfosten. Aber nicht ganz. Weiter.', toxicity:0.60, moving:true }),
+    sequenceLevel(['Z','X','C'], 'Z, X, C. Die Uhr läuft. Los.', 0.62, { timedMs:2600 }),
+    keyLevel('P', 'Beweg dich, denk nach, tipp. Alles gleichzeitig. So wie ich es mag.', 0.64, { moving:true, timedMs:1700 }),
+
+    chapterCard('05','SYSTEMFEHLER','Fehlerprotokoll wird schwer lesbar…', 0.66),
+    impossibleLevel({ labels:['FN'], toxicity:0.68, flavor:'Jetzt wird’s technisch. Drück FN.', reveal:'Ha! FN sendet gar nichts an den Browser. Aber schön, dass du’s versucht hast, Opfer.' }),
+    accentLevel('Genug getrollt. Jetzt wird’s europäisch: ein Buchstabe mit Akzent.', 0.70),
+    impossibleLevel({ labels:['DRUCK'], toxicity:0.72, flavor:'Und jetzt: DRUCK. Beweis, dass es dich je gab.', reveal:'Windows hat den Screenshot geklaut, bevor ich überhaupt hinsehen konnte. Klassiker.' }),
+    accentLevel('Nochmal. Ich will noch einen Akzent sehen, mon ami.', 0.74),
+    impossibleLevel({ labels:['STRG','ALT','ENTF'], toxicity:0.76, flavor:'Für die Ungläubigen: STRG plus ALT plus ENTF.', reveal:'Windows hat dich abgefangen, bevor ich’s überhaupt sehen konnte. Trottel. Weiter geht’s.' }),
+
+    chapterCard('06','RÄTSELKAMMER','Logikmodul testet dich…', 0.78),
+    riddleLevel('Kopfrechnen, weil ich’s kann: 6 mal 7, minus 2. Tipp die Zahl.', ['40'], null, 0.79),
+    riddleLevel('Ergänze die Reihe: Q, W, E, ? Tipp den Buchstaben.', ['r'], null, 0.80),
+    keyLevel('O', 'Drück den einzigen Vokal in dieser Reihe.', 0.81, { decoys:['B','K','T'] }),
+    riddleLevel('Wie viele Buchstaben hat TASTENRAGE? Tipp die Zahl.', ['10','zehn'], null, 0.82),
+    riddleLevel('2, 4, 8, 16, ? — tipp die nächste Zahl.', ['32'], null, 0.83),
+
+    chapterCard('07','SIMON SAGT NICHTS','Merkfähigkeit wird geprüft…', 0.84),
+    simonLevel(['A','S','D'], 'Schau genau hin. Ich zeig’s dir nur einmal.', 0.85),
+    simonLevel(['Q','W','E','R'], 'Nochmal. Diesmal einen mehr. Viel Spaß.', 0.87),
+
+    chapterCard('08','WETTLAUF','Tempo. Nur Tempo.', 0.88),
+    typeraceLevel('CHAOS', 3400, 'Tipp das Wort. Schnell.', 0.89),
+    typeraceLevel('ENDLOS', 3600, 'Noch eins. Bevor die Zeit um ist.', 0.90),
+    typeraceLevel('AUFGEBEN', 4200, 'Ironisch, oder? Tipp trotzdem.', 0.91),
+
+    chapterCard('09','SELBSTBEHERRSCHUNG','Kannst du still halten?', 0.92),
+    resistLevel('X', 2200, 'NICHT drücken. Einfach nur warten. Egal, was ich sage.', 0.93),
+    resistLevel('Z', 2600, 'Nochmal. Ich mach’s dir schwerer. Nicht drücken.', 0.94),
+
+    chapterCard('10','GESTÄNDNIS','Letzte Warnung wird geladen…', 0.95),
+    messageLevel('Kleines Geständnis: Dieses ganze Spiel hatte nur ein Ziel.', 0.96),
+    messageLevel('LOL. Du hast es tatsächlich geschafft.\nNur noch ein Level!', 0.97),
+
+    chapterCard('11','DER KNOPF','Es gibt kein Zurück mehr.', 1.0),
+    finalLevel(['ALT','F4'],
+      e => e.altKey && (e.key === 'F4' || e.code === 'F4'),
+      'Ja – das schließt wirklich das Fenster.',
+      'Letzte Taste. Du weißt, was zu tun ist.', 1.0,
+      'Respekt. Du hast wirklich ALT+F4 gedrückt. Falls dein Fenster gerade noch steht — dein Browser hat dich gerettet. Und weil du mich unbedingt loswerden wolltest, hab ich mir einen Endlos-Modus gebaut. Du entkommst nie ganz.')
+  ];
+
+  /* ---------------------------------------------------------- */
+  /* story 2: LOBBY — toxic matchmaking, ends in STRG+W          */
+  /* ---------------------------------------------------------- */
+  const STORY_LOBBY = [
+    chapterCard('01','WARTESCHLANGE','Suche nach 4 weiteren Spielern…', 0.05),
+    keyLevel('A', 'Los, verbinde dich. Drück A.', 0.05),
+    keyLevel('S', 'Ping wird gemessen. Drück S.', 0.08),
+    keyLevel('D', 'Lobby füllt sich. Drück D.', 0.11),
+    keyLevel('F', 'Fast voll. Drück F.', 0.14),
+
+    chapterCard('02','DRAFT PHASE','Rollen werden verteilt…', 0.18),
+    keyLevel('W', 'Wer will Carry? Ich frag nicht dich. Drück W.', 0.18),
+    sequenceLevel(['Q','W','E'], 'Pick. Ban. Lock in. Der Reihe nach.', 0.22),
+    comboLevel({ key:'R', mods:{shift:true}, labels:['SHIFT','R'], flavor:'Reroll. Bringt bei dir sowieso nichts.', toxicity:0.26 }),
+
+    chapterCard('03','ERSTE WELLE','Lane-Phase beginnt…', 0.30),
+    keyLevel('J', 'Letzt-Hit. Schnell. J.', 0.30, { timedMs:1600 }),
+    keyLevel('K', 'Der Gegner bewegt sich. Ich auch. K.', 0.34, { moving:true }),
+    comboLevel({ key:'D', mods:{ctrl:true}, labels:['STRG','D'], flavor:'Ward setzen, bevor’s zu spät ist.', toxicity:0.38 }),
+    keyLevel('N', 'Ich sag M. Ich mein N. Digga, lies genau.', 0.42, { displayLabel:'M' }),
+
+    chapterCard('04','CLUTCH OR THROW','Alles auf eine Karte…', 0.46),
+    holdLevel('L', 1200, 'Halt die Stellung. Buchstäblich.', 0.46),
+    resistLevel('X', 2000, 'NICHT droppen. Nicht droppen. NICHT.', 0.50),
+    typeraceLevel('EZ', 2400, 'Tipp’s, bevor sie’s im Chat tippen.', 0.54),
+
+    chapterCard('05','REPORT INCOMING','Der Chat wird laut…', 0.58),
+    impossibleLevel({ labels:['FN'], toxicity:0.60, flavor:'Melde dich AFK. Drück FN.', reveal:'Klar. FN existiert nicht für den Browser. AFK bleibst du trotzdem.' }),
+    riddleLevel('Wie viele Spieler sind in einem 5v5-Team? Tipp die Zahl.', ['5','fünf'], null, 0.64),
+    accentLevel('Dein Nickname braucht wohl einen Akzent, mon ami.', 0.68),
+
+    chapterCard('06','MVP SCREEN','Die Ergebnisse werden geladen…', 0.72),
+    simonLevel(['A','S','D','F'], 'Merk dir die Combo. Genau einmal gezeigt.', 0.75),
+    messageLevel('Ehrlich? Für einen Menschen bist du ok.', 0.80),
+
+    chapterCard('07','GG','Lobby verlassen?', 1.0),
+    finalLevel(['STRG','W'],
+      e => e.ctrlKey && !e.altKey && !e.metaKey && e.key.toUpperCase() === 'W',
+      'Ja – das schließt wirklich diesen Tab.',
+      'Verlass die Lobby. Für echt diesmal. STRG+W.', 1.0,
+      'GG WP. Du hast wirklich STRG+W gedrückt. Falls der Tab noch offen ist — dein Browser mag dich mehr, als ich erwartet hab.')
+  ];
+
+  /* ---------------------------------------------------------- */
+  /* story 3: BÜRO — corporate satire that softens, ends ENTER   */
+  /* ---------------------------------------------------------- */
+  const STORY_BUERO = [
+    chapterCard('01','ONBOARDING','Willkommen im Unternehmen.', 0.04),
+    keyLevel('A', 'Bitte bestätigen Sie Ihre Anwesenheit. Taste A.', 0.04),
+    keyLevel('S', 'Sehr gut. Taste S.', 0.07),
+    keyLevel('D', 'Weiter im Prozess. Taste D.', 0.10),
+
+    chapterCard('02','COMPLIANCE','Richtlinien werden geladen…', 0.14),
+    sequenceLevel(['F','G','H'], 'Bitte bestätigen Sie in der korrekten Reihenfolge.', 0.14),
+    comboLevel({ key:'C', mods:{ctrl:true}, labels:['STRG','C'], flavor:'Kopieren Sie das Formular.', toxicity:0.18 }),
+    riddleLevel('Wie viele Kaffeepausen stehen Ihnen laut Vertrag zu? Tipp die Zahl.', ['2','zwei'], null, 0.22),
+
+    chapterCard('03','TEAM-MEETING','Kamera an, bitte.', 0.26),
+    keyLevel('K', 'Bitte nicht einschlafen. K.', 0.26, { timedMs:1800 }),
+    keyLevel('L', 'Die Präsentation bewegt sich. Wie üblich sinnlos.', 0.30, { moving:true }),
+    holdLevel('M', 1000, 'Halten Sie durch. Wie im echten Leben.', 0.34),
+
+    chapterCard('04','PERSONALGESPRÄCH','Bitte nehmen Sie Platz.', 0.40),
+    impossibleLevel({ labels:['STRG','ALT','ENTF'], toxicity:0.44, flavor:'Für den Ernstfall: STRG plus ALT plus ENTF.', reveal:'Windows fängt Sie ab. Wie immer, wenn’s wichtig wird.' }),
+    accentLevel('Ihr Titel braucht einen Akzent. Rein franchise-technisch.', 0.48),
+    keyLevel('Y', 'Ich zeig X. Ich mein Y. Standard-Bürokratie.', 0.52, { displayLabel:'X' }),
+
+    chapterCard('05','WENDEPUNKT','Moment mal.', 0.50),
+    messageLevel('Ehrlich gesagt … du machst das richtig gut.', 0.34),
+    keyLevel('E', 'Nur noch eine Taste, versprochen. E.', 0.20),
+    messageLevel('Kein Trick. Kein fieser Twist. Nur … danke fürs Mitmachen.', 0.10),
+
+    chapterCard('06','FEIERABEND','Zeit zu gehen.', 0.05),
+    finalLevel(['ENTER'],
+      e => !e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'Enter',
+      'Mach Feierabend.',
+      'Letzte Taste heute. Mach Feierabend.', 0.05,
+      'Feierabend. Ehrlich gemeint: gut gemacht. Kein Fenster schließt sich, kein Cheat nötig — du hast einfach fertig gespielt. Das darf auch mal reichen.')
+  ];
+
+  const STORIES = [
+    { id:'system', title:'SYSTEM', teaser:'Ein Terminal-Programm, das lieber geschlossen werden will. Oder auch nicht.', chapterCount:11, levels: STORY_SYSTEM },
+    { id:'lobby', title:'LOBBY', teaser:'Du steckst in einer Warteschlange fest. Dein Teamkollege hat Meinungen.', chapterCount:7, levels: STORY_LOBBY },
+    { id:'buero', title:'BÜRO', teaser:'Ein Trainingsmodul, das eigentlich ganz nett sein wollte. Vielleicht ist es das noch.', chapterCount:6, levels: STORY_BUERO }
+  ];
+
+  /* ---------------------------------------------------------- */
+  /* endless mode                                                 */
+  /* ---------------------------------------------------------- */
+  const LETTERS = 'ASDFGHJKLQWERTYUIOPZXCVBNM'.split('');
+  const WORD_POOL = ['CHAOS','TOXISCH','KONTROLLE','FEHLER','ENDLOS','WARTEN','SCHNELLER','AUFGEBEN','GLITCH','RAGE','SYSTEM','ZEITLOS'];
+  const ENDLESS_LINES_0 = [
+    'Bist du eingeschlafen?','Mein Toaster reagiert schneller als du.',
+    'Skill Issue. Kostenlose Diagnose.','Ich hab schon Steine gesehen mit besserem Timing.',
+    'Wird das noch was heute?','Du bist der Grund, warum Tutorials existieren.',
+    'Langsam glaub ich, du tippst mit den Füßen.','Noch so eine Runde und ich flenne vor Freude.',
+    'Respekt fürs Durchhalten. Und für sonst nicht viel.','Mit dem Tempo tippst du wohl noch SMS von 2007.',
+    'Dein Highscore trauert schon um sich selbst.','Ich glaub an dich. Ungefähr so viel wie an den Weihnachtsmann.',
+    'Kaffee. Jetzt. Sofort.','Selbst mein Ladebildschirm war spannender.',
+    'Ehrlich, ich hab schon aufgegeben. Du auch bald.','Nochmal so lahm und ich ruf deinen Internetanbieter an.',
+    'Du bist nicht schlecht. Für einen Toaster.','Ich zähl die Sekunden. Absichtlich langsam.',
+    'Manche üben. Du wartest, dass es von allein besser wird.','Ich bin nur ein Programm und selbst mir tut das weh.',
+    'Mach weiter. Ich lach mich sonst tot. Zu spät.','Endlos heißt endlos. Ich hab Zeit. Du nicht.',
+    'Deine Finger und dein Ego bewegen sich unterschiedlich schnell.','Noch ’n Level. Nur damit du leidest.'
+  ];
+  const ENDLESS_LINES_1 = [
+    'Du bist der Grund für Content-Warnungen.','Ich hab freiwillige Fehler eingebaut. Du findest trotzdem mehr.',
+    'Digga. Ernsthaft.','Skill Issue 2: Das Sequel.','Selbst der Ladebalken schämt sich für dich.',
+    'Ich glaub, deine Tastatur will Asyl beantragen.','Noch langsamer und ich melde dich als Standbild.',
+    'Du bist nicht schlecht. Du bist ein Negativbeispiel.','Ich hab Bugs gesehen, die reagieren schneller.',
+    'Dein Reaktionsvermögen hat Verspätung. Wie ein Zug.','Ich fang an, mich zu fragen, ob du das absichtlich machst.',
+    'Ehrlich, ich bin beeindruckt. Negativ beeindruckt.','Du klickst wie im Museum. Vorsichtig. Respektvoll. Falsch.',
+    'Noch so eine Runde und ich schreib das in dein Zeugnis.','Ich programmier grad einen Nachfolger. Für dich. Ohne dich.',
+    'Du bist konstant. Konstant enttäuschend.'
+  ];
+  const ENDLESS_LINES_2 = [
+    'Wir sind jetzt schon eine Weile hier drin.','Zeit bedeutet hier drin nicht mehr viel.',
+    'Ich hab aufgehört, die Sekunden zu zählen.','Draußen ist wahrscheinlich noch Tag. Oder auch nicht.',
+    'Ich glaub, wir beide brauchen mal Pause. Aber nicht jetzt.','Niemand hat dich gezwungen, weiterzuspielen. Nur ich. Ein bisschen.',
+    'An diesem Punkt spielst du gegen dich selbst. Ich guck nur zu.','Ich hab kein Ende programmiert. Das war Absicht.',
+    'Frag mich nicht, wie lange das hier schon läuft.','Jeder Versuch bringt dich näher an nichts Bestimmtes.',
+    'Ich bin stolz. Und das beunruhigt mich selbst.','Vielleicht bist du längst besser als ich erwartet hab. Sag’s niemandem.',
+    'Diese Nachricht wiederholt sich nicht. Genau wie du gerade.','Ich zähl nicht mehr mit. Ehrlich gesagt: doch.'
+  ];
+  const GAMEOVER_LINES = [
+    'GAME OVER. Wie erwartet.','Das war’s. Setz dich hin, atme durch, versuch’s nochmal.',
+    'Die Taste hat gewonnen. Die Taste gewinnt immer.','Nicht schlecht. Für einen Anfänger. Bist du einer?',
+    'Dein Highscore ist offiziell traurig.','Immerhin bist du weiter gekommen als mein letztes Update.',
+    'Das reicht fürs Erste. Oder fürs Letzte. Deine Wahl.','Kurz, aber immerhin laut gescheitert.',
+    'Übung macht den Meister. Du übst noch.'
+  ];
+  const MILESTONE_LINES = [
+    '10 Runden. Du bist offiziell verdächtig entspannt dabei.','20. Ich fang an, dich zu respektieren. Ein bisschen.',
+    '35. Andere haben aufgehört. Du nicht. Warum?','50! Die Hälfte von Hundert. Grüße von der anderen Hälfte.',
+    '75. Ich hab aufgehört zu zählen, wie oft ich dich unterschätzt hab.','100. Ok. Das ist jetzt offiziell ungesund.',
+    '150. Ich glaub, du wohnst jetzt hier.','200. Die Sonne ist vermutlich untergegangen. Draußen. Kennst du noch?',
+    '300. Ich hab keine Sprüche mehr. Das ist dein Sieg.','500. Ich weiß nicht mehr, wer hier wen spielt.'
+  ];
+  const MILESTONES = [10,20,35,50,75,100,150,200,300,500];
+  const shownMilestones = new Set();
+
+  function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+  function randLetter(exclude){
+    let c; do{ c = LETTERS[Math.floor(Math.random()*LETTERS.length)]; }while(exclude && c===exclude);
+    return c;
+  }
+  function endlessFlavor(score){
+    const era = score < 15 ? 0 : (score < 40 ? 1 : 2);
+    return pick(era === 0 ? ENDLESS_LINES_0 : era === 1 ? ENDLESS_LINES_1 : ENDLESS_LINES_2);
+  }
+  function genMathRiddle(){
+    const a = 2 + Math.floor(Math.random()*9), b = 1 + Math.floor(Math.random()*a);
+    const op = Math.random() < 0.5 ? '+' : '-';
+    const ans = op === '+' ? a+b : a-b;
+    return { question: `Kopfrechnen. ${a} ${op} ${b} = ? Tipp die Zahl.`, accept: [String(ans)] };
+  }
+  function genEndlessLevel(score){
+    const diff = Math.min(1, score/35);
+    const flavor = endlessFlavor(score);
+    const toxicity = Math.min(1, 0.28 + diff*0.72);
+    const wantTimed = score >= 5 && Math.random() < 0.55;
+    const wantMoving = score >= 12 && Math.random() < (0.06 + 0.3*diff);
+    let roll = score < 3 ? 0 : Math.random();
+
+    if (roll < 0.28){
+      const letter = randLetter();
+      return { kind:'key', flavor, toxicity, labels:[letter], moving:wantMoving,
+        timedMs: wantTimed ? Math.max(600, 1900 - score*30) : null,
+        match: e => !e.ctrlKey && !e.altKey && !e.metaKey && e.key.toUpperCase() === letter };
+    }
+    if (roll < 0.48){
+      const letter = randLetter();
+      const modPool = shuffle(['shift','ctrl','alt']);
+      const modCount = score > 18 && Math.random() < 0.3 ? 2 : 1;
+      const chosen = modPool.slice(0, modCount);
+      const mods = {}; chosen.forEach(m => mods[m] = true);
+      const labels = chosen.map(m => m === 'ctrl' ? 'STRG' : m.toUpperCase()).concat([letter]);
+      return { kind:'combo', flavor, toxicity, labels, moving:wantMoving,
+        timedMs: wantTimed ? Math.max(700, 2100 - score*30) : null,
+        match: e => !!e.ctrlKey === !!mods.ctrl && !!e.altKey === !!mods.alt && !!e.shiftKey === !!mods.shift && e.key.toUpperCase() === letter };
+    }
+    if (roll < 0.64){
+      const len = score > 25 ? 4 : (score > 12 ? 3 : 2);
+      const letters = []; let last = null;
+      for (let i=0;i<len;i++){ const l = randLetter(last); letters.push(l); last = l; }
+      return { kind:'sequence', flavor, toxicity, letters, moving:wantMoving,
+        timedMs: wantTimed ? Math.max(900, 2600 - score*35) : null };
+    }
+    if (roll < 0.76){
+      const letter = randLetter();
+      const holdMs = Math.max(500, 1300 - score*12);
+      return { kind:'hold', flavor, toxicity, holdKey:letter, holdMs, labels:[letter] };
+    }
+    if (roll < 0.85 && score >= 8){
+      const r = genMathRiddle();
+      return { kind:'riddle', flavor: r.question, toxicity, question:r.question, accept:r.accept };
+    }
+    if (roll < 0.91 && score >= 15){
+      const len = score > 40 ? 5 : (score > 20 ? 4 : 3);
+      const letters = []; let last = null;
+      for (let i=0;i<len;i++){ const l = randLetter(last); letters.push(l); last = l; }
+      return { kind:'simon', flavor, toxicity, letters };
+    }
+    if (roll < 0.96 && score >= 10){
+      const word = pick(WORD_POOL);
+      return { kind:'typerace', flavor, toxicity, word, timedMs: Math.max(1600, 4200 - score*40) };
+    }
+    if (score >= 12){
+      const letter = randLetter();
+      const holdMs = Math.min(3200, 900 + score*30);
+      return { kind:'resist', flavor, toxicity, letter, holdMs };
+    }
+    const letter = randLetter();
+    return { kind:'key', flavor, toxicity, labels:[letter], moving:false, timedMs:null,
+      match: e => !e.ctrlKey && !e.altKey && !e.metaKey && e.key.toUpperCase() === letter };
+  }
+
+  /* ---------------------------------------------------------- */
+  /* color / toxicity helpers                                    */
+  /* ---------------------------------------------------------- */
+  const stops = [
+    { t:0.00, c:[78,230,200] }, { t:0.45, c:[255,157,61] },
+    { t:0.75, c:[255,46,77] }, { t:1.00, c:[255,46,166] }
+  ];
+  function lerpColor(t){
+    t = Math.max(0, Math.min(1, t));
+    for (let i=0;i<stops.length-1;i++){
+      const a = stops[i], b = stops[i+1];
+      if (t >= a.t && t <= b.t){
+        const f = (t-a.t)/(b.t-a.t || 1);
+        const c = a.c.map((v,i)=> Math.round(v + (b.c[i]-v)*f));
+        return `rgb(${c[0]},${c[1]},${c[2]})`;
+      }
+    }
+    return `rgb(${stops[stops.length-1].c.join(',')})`;
+  }
+  function setToxicity(t){
+    const root = document.documentElement.style;
+    root.setProperty('--toxicity', t.toFixed(3));
+    root.setProperty('--accent-live', lerpColor(t));
+    root.setProperty('--accent-live-dim', lerpColor(t).replace('rgb','rgba').replace(')', ',0.35)'));
+    $('vignette').style.background =
+      `radial-gradient(120% 100% at 50% 50%, transparent ${45 - t*15}%, rgba(${Math.round(20+t*40)},0,0,${0.25+t*0.25}) 78%, rgba(0,0,0,${0.6+t*0.3}) 100%)`;
+  }
+
+  /* ---------------------------------------------------------- */
+  /* audio: sfx + generative ambient music                       */
+  /* ---------------------------------------------------------- */
+  let audioCtx = null, sfxMuted = false, musicOn = true, musicNodes = null, musicTimer = null;
+  function ensureAudio(){
+    if (!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+    if (audioCtx && audioCtx.state === 'suspended'){ audioCtx.resume().catch(()=>{}); }
+  }
+  function tone(freq, dur, type, gainPeak){
+    if (sfxMuted || !audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(gainPeak, t0+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0+dur);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(t0); osc.stop(t0+dur+0.02);
+  }
+  function musicNote(freq){
+    if (!musicOn || !audioCtx) return;
+    tone(freq, 0.45, 'triangle', 0.028);
+  }
+  function playHit(n){ tone(420 + (n%24)*10, 0.11, 'sine', 0.06); }
+  function playMiss(){ tone(120, 0.16, 'sawtooth', 0.05); }
+  function playWin(){ [0,4,7,12].forEach((semi,i)=> setTimeout(()=> tone(220*Math.pow(2,semi/12), 0.5, 'triangle', 0.05), i*90)); }
+  function playOver(){ [0,-3,-7].forEach((semi,i)=> setTimeout(()=> tone(220*Math.pow(2,semi/12), 0.4, 'sawtooth', 0.04), i*120)); }
+
+  function startMusic(){
+    if (!audioCtx || musicNodes) return;
+    const master = audioCtx.createGain(); master.gain.value = musicOn ? 0.5 : 0; master.connect(audioCtx.destination);
+    const filter = audioCtx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 700; filter.connect(master);
+    const osc1 = audioCtx.createOscillator(); osc1.type = 'sine'; osc1.frequency.value = 110;
+    const osc2 = audioCtx.createOscillator(); osc2.type = 'sine'; osc2.frequency.value = 110*1.005;
+    const padGain = audioCtx.createGain(); padGain.gain.value = 0.06;
+    osc1.connect(padGain); osc2.connect(padGain); padGain.connect(filter);
+    const lfo = audioCtx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.045;
+    const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 260;
+    lfo.connect(lfoGain); lfoGain.connect(filter.frequency);
+    try{ osc1.start(); osc2.start(); lfo.start(); }catch(e){}
+    musicNodes = { master, filter, osc1, osc2, padGain, lfo };
+    scheduleArp();
+  }
+  function scheduleArp(){
+    if (!musicNodes) return;
+    const delay = 950 - Math.min(500, toxNow*500) + Math.random()*420;
+    musicTimer = setTimeout(()=>{
+      const scale = toxNow > 0.6 ? [0,1,3,6,7,10] : [0,3,5,7,10];
+      const root = 220;
+      const note = root * Math.pow(2, pick(scale)/12);
+      musicNote(note);
+      scheduleArp();
+    }, delay);
+  }
+  function applyMusicGain(){
+    if (!musicNodes || !audioCtx) return;
+    musicNodes.master.gain.setTargetAtTime(musicOn ? 0.5 : 0, audioCtx.currentTime, 0.25);
+  }
+
+  /* ---------------------------------------------------------- */
+  /* background particles                                        */
+  /* ---------------------------------------------------------- */
+  const canvas = $('bg');
+  const ctx = canvas.getContext('2d');
+  let particles = [], DPR = Math.min(window.devicePixelRatio||1, 2);
+  function resize(){
+    canvas.width = innerWidth*DPR; canvas.height = innerHeight*DPR;
+    canvas.style.width = innerWidth+'px'; canvas.style.height = innerHeight+'px';
+  }
+  function initParticles(n){
+    particles = Array.from({length:n}, ()=> ({ x: Math.random()*innerWidth, y: Math.random()*innerHeight, s: 1+Math.random()*2.4, v: 10+Math.random()*20 }));
+  }
+  let lastT = performance.now(), toxNow = 0;
+  function frame(now){
+    const dt = Math.min(0.05,(now-lastT)/1000); lastT = now;
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+    ctx.fillStyle = lerpColor(toxNow);
+    for (const p of particles){
+      p.y += p.v*(1+toxNow*2.2)*dt;
+      if (p.y > innerHeight){ p.y = -4; p.x = Math.random()*innerWidth; }
+      ctx.globalAlpha = 0.16 + toxNow*0.18;
+      ctx.fillRect(p.x, p.y, p.s, p.s);
+    }
+    ctx.globalAlpha = 1;
+    if (!reduceMotion) requestAnimationFrame(frame);
+  }
+  resize(); initParticles(reduceMotion ? 24 : 70);
+  window.addEventListener('resize', resize);
+  requestAnimationFrame(frame);
+
+  /* ---------------------------------------------------------- */
+  /* scramble text reveal                                        */
+  /* ---------------------------------------------------------- */
+  const SCRAMBLE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#%&$?!*';
+  function scrambleInto(el, text){
+    if (reduceMotion){ el.textContent = text; return; }
+    const duration = 380;
+    const t0 = performance.now();
+    const len = text.length;
+    function step(now){
+      const p = Math.min(1, (now-t0)/duration);
+      const revealCount = Math.floor(p*len);
+      let out = '';
+      for (let i=0;i<len;i++){
+        const ch = text[i];
+        if (i < revealCount || ch === ' ' || ch === '\n') out += ch;
+        else out += SCRAMBLE_CHARS[Math.floor(Math.random()*SCRAMBLE_CHARS.length)];
+      }
+      el.textContent = out;
+      if (p < 1) requestAnimationFrame(step); else el.textContent = text;
+    }
+    requestAnimationFrame(step);
+  }
+
+  /* ---------------------------------------------------------- */
+  /* game state                                                   */
+  /* ---------------------------------------------------------- */
+  const flavorEl = $('flavor'), keycapsEl = $('keycaps'), hintEl = $('hint'), skipBtn = $('skipBtn'),
+        toastEl = $('toast'), appEl = $('app'), flashEl = $('flash'), stageEl = $('stage'),
+        hudLeftText = $('hudLeftText'), progressFill = $('progressFill'), rageFill = $('rageFill'),
+        timerBar = $('timerBar'), timerFill = $('timerFill'), streakPop = $('streakPop'),
+        textForm = $('textForm'), textInput = $('textInput'), textSubmitBtn = $('textSubmitBtn');
+
+  let mode = 'story';          // 'story' | 'endless'
+  let activeStory = STORIES[0];
+  let activeStoryLevels = STORIES[0].levels;
+  let idx = 0;                 // story index
+  let score = 0;                // endless score
+  let endlessCurrent = null;
+  let mistakes = 0, streak = 0, maxTox = 0, startTime = 0, gameActive = false, modalOpen = false;
+  let currentChapterName = 'KAPITEL 01';
+
+  let pendingTimer = null, skipTimer = null, movingIv = null;
+  let seqIndex = 0, seqLetters = [];
+  let holdState = { active:false, startTs:0 };
+  let ringRAF = null;
+  let simonPhase = null, simonTimer = null;
+
+  function cur(){ return mode === 'story' ? activeStoryLevels[idx] : endlessCurrent; }
+
+  function getBest(){ try{ return parseInt(localStorage.getItem('tastenrage_best')||'0',10)||0; }catch(e){ return 0; } }
+  function setBest(v){ try{ localStorage.setItem('tastenrage_best', String(v)); }catch(e){} }
+
+  function clearTimers(){
+    if (pendingTimer) clearTimeout(pendingTimer);
+    if (skipTimer) clearTimeout(skipTimer);
+    if (simonTimer) clearTimeout(simonTimer);
+    pendingTimer = null; skipTimer = null; simonTimer = null;
+    skipBtn.hidden = true;
+    toastEl.classList.remove('show');
+  }
+  function teardown(){
+    clearTimers();
+    if (movingIv){ clearInterval(movingIv); movingIv = null; }
+    keycapsEl.style.transform = '';
+    if (ringRAF){ cancelAnimationFrame(ringRAF); ringRAF = null; }
+    timerBar.hidden = true; timerFill.style.width = '0%';
+    holdState.active = false;
+    seqIndex = 0; seqLetters = [];
+    simonPhase = null;
+    textForm.hidden = true; textInput.value = ''; textInput.className = 'field-input';
+  }
+
+  function renderKeycaps(labels, opts){
+    opts = opts || {};
+    keycapsEl.innerHTML = '';
+    labels.forEach((label, i) => {
+      if (i > 0){
+        const sep = document.createElement('span');
+        sep.className = opts.sequence ? 'arrow' : 'plus';
+        sep.textContent = opts.sequence ? '→' : (opts.alt ? '/' : '+');
+        keycapsEl.appendChild(sep);
+      }
+      const cap = document.createElement('span');
+      cap.className = 'keycap' + (label.length > 2 ? ' small' : '');
+      cap.textContent = label;
+      keycapsEl.appendChild(cap);
+    });
+  }
+  function pulseCaps(cls){
+    keycapsEl.querySelectorAll('.keycap').forEach(c => { c.classList.remove('hit','miss'); void c.offsetWidth; c.classList.add(cls); });
+  }
+  function renderSeqProgress(letters, atIndex){
+    renderKeycaps(letters, { sequence:true });
+    const caps = keycapsEl.querySelectorAll('.keycap');
+    caps.forEach((c,i)=>{
+      if (i < atIndex) c.classList.add('seq-done');
+      else if (i === atIndex) c.classList.add('seq-active');
+    });
+  }
+  function showToast(text){ toastEl.textContent = text; requestAnimationFrame(()=> toastEl.classList.add('show')); }
+  function showStreakPop(n){
+    streakPop.textContent = '×' + n;
+    streakPop.classList.remove('show'); void streakPop.offsetWidth; streakPop.classList.add('show');
+  }
+  function startMoving(){
+    if (reduceMotion) return;
+    movingIv = setInterval(()=>{
+      const mx = 40, my = 24;
+      const x = (Math.random()*2-1)*mx, y = (Math.random()*2-1)*my;
+      keycapsEl.style.transform = `translate(${x}px,${y}px)`;
+    }, 420);
+  }
+  function runTimerRing(ms, onExpire){
+    timerBar.hidden = false;
+    const t0 = performance.now();
+    function tick(now){
+      const p = Math.min(1, (now-t0)/ms);
+      timerFill.style.width = ((1-p)*100) + '%';
+      if (p >= 1){ ringRAF = null; onExpire(); return; }
+      ringRAF = requestAnimationFrame(tick);
+    }
+    timerFill.style.width = '100%';
+    ringRAF = requestAnimationFrame(tick);
+  }
+  function restartTimerRingIfAny(){
+    const lvl = cur();
+    if (lvl && lvl.timedMs){
+      if (ringRAF){ cancelAnimationFrame(ringRAF); ringRAF = null; }
+      runTimerRing(lvl.timedMs, ()=> fail());
+    }
+  }
+  function playSimonSequence(letters, i){
+    if (i >= letters.length){
+      simonPhase = 'input';
+      renderSeqProgress(letters, 0);
+      hintEl.textContent = 'Jetzt du. Der Reihe nach, blind.';
+      return;
+    }
+    keycapsEl.innerHTML = '';
+    renderKeycaps([letters[i]]);
+    pulseCaps('hit');
+    simonTimer = setTimeout(()=>{
+      keycapsEl.innerHTML = '';
+      simonTimer = setTimeout(()=> playSimonSequence(letters, i+1), 180);
+    }, 620);
+  }
+
+  function renderLevel(){
+    teardown();
+    const lvl = cur();
+    toxNow = lvl.toxicity; maxTox = Math.max(maxTox, toxNow);
+    setToxicity(toxNow);
+
+    if (mode === 'story'){
+      progressFill.style.width = (idx/(activeStoryLevels.length-1))*100 + '%';
+      hudLeftText.textContent = currentChapterName;
+    } else {
+      progressFill.style.width = ((score % 10)/10)*100 + '%';
+      hudLeftText.textContent = 'ENDLOS · SCORE ' + score + ' · BESTE ' + getBest();
+    }
+    rageFill.style.width = (toxNow*100) + '%';
+
+    flavorEl.innerHTML = '';
+    const span = document.createElement('span');
+    span.className = 'reveal';
+    flavorEl.appendChild(span);
+    scrambleInto(span, lvl.flavor || '');
+
+    if (lvl.kind === 'chapter'){
+      currentChapterName = 'KAPITEL ' + lvl.num;
+      hudLeftText.textContent = currentChapterName;
+      flavorEl.innerHTML = '';
+      const wrap = document.createElement('div');
+      const numEl = document.createElement('div'); numEl.className = 'chapter-num'; numEl.textContent = lvl.num;
+      const titleEl = document.createElement('div'); titleEl.className = 'chapter-title'; titleEl.textContent = lvl.title;
+      const subEl = document.createElement('div'); subEl.className = 'chapter-sub';
+      wrap.appendChild(numEl); wrap.appendChild(titleEl); wrap.appendChild(subEl);
+      flavorEl.appendChild(wrap);
+      scrambleInto(subEl, lvl.sub || '');
+      keycapsEl.innerHTML = '';
+      hintEl.textContent = 'Beliebige Taste drücken';
+      return;
+    }
+    if (lvl.kind === 'message'){
+      keycapsEl.innerHTML = '';
+      hintEl.textContent = 'ENTER drücken, um weiterzumachen';
+      return;
+    }
+    if (lvl.kind === 'final'){
+      renderKeycaps(lvl.labels);
+      hintEl.textContent = lvl.hint;
+      return;
+    }
+    if (lvl.kind === 'impossible'){
+      renderKeycaps(lvl.labels);
+      hintEl.textContent = 'Ich warte …';
+      pendingTimer = setTimeout(()=>{
+        showToast(lvl.reveal);
+        pendingTimer = setTimeout(advance, 1700);
+      }, 2400);
+      return;
+    }
+    if (lvl.kind === 'accent'){
+      renderKeycaps(lvl.labels, { alt:true });
+      hintEl.textContent = 'Irgendein Buchstabe mit Akzent zählt.';
+      skipTimer = setTimeout(()=>{ skipBtn.hidden = false; }, 5000);
+      return;
+    }
+    if (lvl.kind === 'sequence'){
+      seqLetters = lvl.letters; seqIndex = 0;
+      renderSeqProgress(seqLetters, 0);
+      hintEl.textContent = 'Der Reihe nach drücken.';
+      if (mode === 'story') skipTimer = setTimeout(()=>{ skipBtn.hidden = false; }, 9000);
+      if (lvl.moving) startMoving();
+      if (lvl.timedMs) runTimerRing(lvl.timedMs, ()=> fail());
+      return;
+    }
+    if (lvl.kind === 'simon'){
+      seqLetters = lvl.letters; seqIndex = 0; simonPhase = 'watch';
+      hintEl.textContent = 'Merken…';
+      keycapsEl.innerHTML = '';
+      if (mode === 'story') skipTimer = setTimeout(()=>{ skipBtn.hidden = false; }, 20000);
+      playSimonSequence(lvl.letters, 0);
+      return;
+    }
+    if (lvl.kind === 'hold'){
+      renderKeycaps(lvl.labels);
+      hintEl.textContent = 'Taste halten, bis der Balken voll ist.';
+      timerBar.hidden = false; timerFill.style.width = '0%';
+      return;
+    }
+    if (lvl.kind === 'resist'){
+      renderKeycaps([lvl.letter]);
+      hintEl.textContent = 'NICHT drücken. Einfach nur warten.';
+      runTimerRing(lvl.holdMs, ()=> success());
+      return;
+    }
+    if (lvl.kind === 'riddle'){
+      keycapsEl.innerHTML = '';
+      textForm.hidden = false; textInput.value = ''; textInput.type = 'text'; textInput.placeholder = 'Antwort…';
+      hintEl.textContent = 'Antwort tippen, ENTER drücken.';
+      if (mode === 'story') skipTimer = setTimeout(()=>{ skipBtn.hidden = false; }, 16000);
+      setTimeout(()=> textInput.focus(), 40);
+      return;
+    }
+    if (lvl.kind === 'typerace'){
+      renderKeycaps([lvl.word.toUpperCase()]);
+      textForm.hidden = false; textInput.value = ''; textInput.type = 'text'; textInput.placeholder = 'Tipp das Wort…';
+      hintEl.textContent = 'Tipp das Wort, bevor die Zeit um ist.';
+      if (lvl.timedMs) runTimerRing(lvl.timedMs, ()=> fail());
+      setTimeout(()=> textInput.focus(), 40);
+      return;
+    }
+
+    // key / combo
+    renderKeycaps(lvl.labels, { alt: !!lvl.choice });
+    hintEl.textContent = lvl.kind === 'combo' ? 'Alle Tasten gleichzeitig halten.' : '';
+    if (mode === 'story' && lvl.kind === 'combo') skipTimer = setTimeout(()=>{ skipBtn.hidden = false; }, 8000);
+    if (lvl.moving) startMoving();
+    if (lvl.timedMs) runTimerRing(lvl.timedMs, ()=> fail());
+  }
+
+  function success(){
+    playHit(mode==='story' ? idx : score);
+    pulseCaps('hit');
+    flashEl.classList.remove('hit'); void flashEl.offsetWidth; flashEl.classList.add('hit');
+    streak++;
+    if (streak > 0 && streak % 5 === 0) showStreakPop(streak);
+    if (ringRAF){ cancelAnimationFrame(ringRAF); ringRAF = null; }
+    if (movingIv){ clearInterval(movingIv); movingIv = null; keycapsEl.style.transform = ''; }
+    timerBar.hidden = true;
+    clearTimers();
+    pendingTimer = setTimeout(advance, 260);
+  }
+  function fail(){
+    playMiss();
+    pulseCaps('miss');
+    flashEl.classList.remove('miss'); void flashEl.offsetWidth; flashEl.classList.add('miss');
+    if (!reduceMotion){ appEl.classList.remove('shake'); void appEl.offsetWidth; appEl.classList.add('shake'); }
+    streak = 0;
+    if (mode === 'endless'){ endlessGameOver(); return; }
+    mistakes++;
+    const lvl = cur();
+    if (lvl && lvl.kind === 'sequence'){ seqIndex = 0; renderSeqProgress(seqLetters, 0); }
+    if (lvl && lvl.kind === 'simon'){ seqIndex = 0; simonPhase = 'watch'; hintEl.textContent = 'Merken…'; playSimonSequence(seqLetters, 0); }
+    if (lvl && lvl.kind === 'hold'){ timerFill.style.width = '0%'; }
+    if (lvl && lvl.kind === 'resist'){ if (ringRAF){ cancelAnimationFrame(ringRAF); ringRAF = null; } runTimerRing(lvl.holdMs, ()=> success()); }
+    if (lvl && (lvl.kind === 'riddle' || lvl.kind === 'typerace')){ textInput.value = ''; textInput.className = 'field-input'; textInput.focus(); }
+    if (lvl && lvl.timedMs && lvl.kind !== 'resist') restartTimerRingIfAny();
+  }
+  function maybeGlitch(){
+    if (reduceMotion) return;
+    if (toxNow > 0.3 && Math.random() < toxNow*0.5){
+      appEl.classList.remove('glitch-pulse'); void appEl.offsetWidth; appEl.classList.add('glitch-pulse');
+    }
+  }
+  function checkMilestone(s){
+    for (const m of MILESTONES){
+      if (s === m && !shownMilestones.has(m)){
+        shownMilestones.add(m);
+        showToast(pick(MILESTONE_LINES));
+        break;
+      }
+    }
+  }
+
+  function advance(){
+    if (mode === 'story'){
+      idx++;
+      if (idx >= activeStoryLevels.length) return; // final handled via winFinale()
+      renderLevel();
+    } else {
+      score++;
+      endlessCurrent = genEndlessLevel(score);
+      renderLevel();
+      checkMilestone(score);
+    }
+    maybeGlitch();
+  }
+
+  function isModifierKey(k){ return k === 'Shift' || k === 'Control' || k === 'Alt' || k === 'Meta' || k === 'AltGraph'; }
+
+  function onKeyDown(e){
+    if (!gameActive || modalOpen) return;
+    const lvl = cur();
+    if (!lvl) return;
+    if (lvl.kind === 'riddle' || lvl.kind === 'typerace') return; // handled by textForm's own listeners
+
+    if (lvl.kind === 'chapter'){
+      if (!isModifierKey(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey){ advance(); }
+      return;
+    }
+    if (lvl.kind === 'message'){
+      if (e.key === 'Enter'){ e.preventDefault(); advance(); }
+      return;
+    }
+    if (lvl.kind === 'final'){
+      if (lvl.matchFinal(e)){
+        e.preventDefault(); e.stopPropagation();
+        winFinale(lvl.endText);
+      }
+      return;
+    }
+    if (lvl.kind === 'impossible') return;
+
+    if (lvl.kind === 'resist'){
+      if (isModifierKey(e.key)) return;
+      fail();
+      return;
+    }
+    if (isModifierKey(e.key)) return;
+
+    if (lvl.kind === 'hold'){
+      const letter = e.key.toUpperCase();
+      if (letter !== lvl.holdKey){
+        if (holdState.active){ holdState.active = false; if (ringRAF){ cancelAnimationFrame(ringRAF); ringRAF = null; } }
+        fail(); return;
+      }
+      if (e.repeat || holdState.active) return;
+      holdState.active = true; holdState.startTs = performance.now();
+      timerBar.hidden = false;
+      const holdMs = lvl.holdMs;
+      function tick(now){
+        if (!holdState.active) return;
+        const p = Math.min(1, (now-holdState.startTs)/holdMs);
+        timerFill.style.width = (p*100) + '%';
+        if (p < 1) ringRAF = requestAnimationFrame(tick);
+      }
+      ringRAF = requestAnimationFrame(tick);
+      return;
+    }
+
+    if (e.ctrlKey || e.altKey) e.preventDefault();
+
+    if (lvl.kind === 'sequence'){
+      const letter = e.key.toUpperCase();
+      if (e.ctrlKey || e.altKey || e.metaKey || letter !== seqLetters[seqIndex]){ fail(); return; }
+      seqIndex++;
+      renderSeqProgress(seqLetters, seqIndex);
+      if (seqIndex >= seqLetters.length) success();
+      return;
+    }
+    if (lvl.kind === 'simon'){
+      if (simonPhase !== 'input') return;
+      const letter = e.key.toUpperCase();
+      if (e.ctrlKey || e.altKey || e.metaKey || letter !== seqLetters[seqIndex]){ fail(); return; }
+      seqIndex++;
+      renderSeqProgress(seqLetters, seqIndex);
+      if (seqIndex >= seqLetters.length) success();
+      return;
+    }
+    if (lvl.kind === 'accent'){
+      const r = lvl.match(e);
+      if (r === true) success(); else if (r === false) fail();
+      return;
+    }
+
+    if (lvl.match(e)) success(); else fail();
+  }
+
+  function onKeyUp(e){
+    if (!gameActive || modalOpen) return;
+    const lvl = cur();
+    if (!lvl || lvl.kind !== 'hold') return;
+    if (!holdState.active) return;
+    if (e.key.toUpperCase() !== lvl.holdKey) return;
+    const elapsed = performance.now() - holdState.startTs;
+    holdState.active = false;
+    if (ringRAF){ cancelAnimationFrame(ringRAF); ringRAF = null; }
+    if (elapsed >= lvl.holdMs) success(); else fail();
+  }
+
+  // riddle / typerace text input handling
+  function submitText(){
+    if (!gameActive) return;
+    const lvl = cur();
+    if (!lvl || (lvl.kind !== 'riddle' && lvl.kind !== 'typerace')) return;
+    const val = textInput.value.trim().toLowerCase();
+    if (lvl.kind === 'riddle'){
+      if (lvl.accept.includes(val)){ textInput.value=''; success(); }
+      else { textInput.value=''; textInput.focus(); fail(); }
+    } else {
+      if (val === lvl.word.toLowerCase()){ textInput.value=''; success(); }
+      else { textInput.value=''; textInput.focus(); fail(); }
+    }
+  }
+  textInput.addEventListener('input', ()=>{
+    if (!gameActive) return;
+    const lvl = cur();
+    if (!lvl || lvl.kind !== 'typerace') return;
+    const val = textInput.value.trim().toLowerCase();
+    const target = lvl.word.toLowerCase();
+    if (val === target){ textInput.value=''; textInput.className='field-input'; success(); return; }
+    textInput.className = 'field-input' + (val && target.startsWith(val) ? ' field-ok' : (val ? ' field-bad' : ''));
+  });
+  textInput.addEventListener('keydown', e=>{
+    e.stopPropagation();
+    if (e.key === 'Enter'){ e.preventDefault(); submitText(); }
+  });
+  textSubmitBtn.addEventListener('click', submitText);
+
+  function fmtTime(ms){
+    const s = Math.floor(ms/1000);
+    return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  }
+
+  function winFinale(endText){
+    gameActive = false;
+    teardown();
+    playWin();
+    const elapsed = Date.now() - startTime;
+    $('statTime').textContent = fmtTime(elapsed);
+    $('statMiss').textContent = mistakes;
+    $('statRage').textContent = Math.round(maxTox*100) + '%';
+    $('endText').textContent = endText || 'Geschafft.';
+    $('endScreen').hidden = false;
+    $('storyNameInput').value = ''; $('storySubmitMsg').textContent = ''; $('storySubmitBtn').disabled = false;
+    window.__lastStoryTimeMs = elapsed;
+  }
+
+  function endlessGameOver(){
+    gameActive = false;
+    teardown();
+    playOver();
+    const best = Math.max(score, getBest());
+    setBest(best);
+    $('statScore').textContent = score;
+    $('statBest').textContent = best;
+    $('gameOverText').textContent = pick(GAMEOVER_LINES);
+    $('gameOverScreen').hidden = false;
+    $('endlessNameInput').value = ''; $('endlessSubmitMsg').textContent = ''; $('endlessSubmitBtn').disabled = false;
+  }
+
+  function startStory(storyId){
+    const story = STORIES.find(s => s.id === storyId) || STORIES[0];
+    activeStory = story; activeStoryLevels = story.levels;
+    ensureAudio(); startMusic();
+    mode = 'story';
+    $('startScreen').hidden = true; $('endScreen').hidden = true; $('gameOverScreen').hidden = true; hideStorySelect();
+    idx = 0; mistakes = 0; streak = 0; maxTox = 0; startTime = Date.now();
+    currentChapterName = 'KAPITEL 01';
+    gameActive = true;
+    renderLevel();
+  }
+  function startEndless(){
+    ensureAudio(); startMusic();
+    mode = 'endless';
+    $('startScreen').hidden = true; $('endScreen').hidden = true; $('gameOverScreen').hidden = true;
+    score = 0; streak = 0; maxTox = 0; startTime = Date.now();
+    endlessCurrent = genEndlessLevel(0);
+    gameActive = true;
+    renderLevel();
+  }
+
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
+  document.addEventListener('keydown', e=>{
+    if (e.key === 'Escape'){
+      if (!$('storySelectOverlay').hidden) hideStorySelect();
+      if (!$('adminOverlay').hidden) hideAdmin();
+      if (!$('leaderboardOverlay').hidden) hideLeaderboard();
+    }
+  });
+
+  /* ---------------------------------------------------------- */
+  /* story select                                                 */
+  /* ---------------------------------------------------------- */
+  function buildStorySelect(){
+    const wrap = $('storyCards'); wrap.innerHTML = '';
+    STORIES.forEach(story=>{
+      const card = document.createElement('div'); card.className = 'story-card';
+      const h3 = document.createElement('h3'); h3.textContent = story.title;
+      const p = document.createElement('p'); p.textContent = story.teaser;
+      const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = story.chapterCount + ' Kapitel';
+      const btn = document.createElement('button'); btn.className = 'primary-btn'; btn.textContent = 'STARTEN';
+      btn.addEventListener('click', ()=> startStory(story.id));
+      card.append(h3, p, meta, btn);
+      wrap.appendChild(card);
+    });
+  }
+  function showStorySelect(){ $('storySelectOverlay').hidden = false; modalOpen = true; }
+  function hideStorySelect(){ $('storySelectOverlay').hidden = true; modalOpen = false; }
+  buildStorySelect();
+
+  $('startBtn').addEventListener('click', showStorySelect);
+  $('storySelectCloseBtn').addEventListener('click', hideStorySelect);
+  $('startEndlessBtn').addEventListener('click', startEndless);
+  window.addEventListener('keydown', e => {
+    if (!$('startScreen').hidden && e.key === 'Enter' && document.activeElement !== $('adminInput')) showStorySelect();
+  });
+
+  skipBtn.addEventListener('click', ()=>{
+    showToast('Na gut. Aber merken tu ich mir das.');
+    clearTimers();
+    pendingTimer = setTimeout(advance, 900);
+  });
+
+  stageEl.addEventListener('click', ()=>{
+    if (!gameActive || modalOpen) return;
+    const lvl = cur();
+    if (lvl && (lvl.kind === 'chapter' || lvl.kind === 'message')) advance();
+  });
+
+  $('restartBtn').addEventListener('click', ()=> startStory(activeStory.id));
+  $('otherStoryBtn').addEventListener('click', ()=>{ $('endScreen').hidden = true; showStorySelect(); });
+  $('goEndlessBtn').addEventListener('click', startEndless);
+  $('retryEndlessBtn').addEventListener('click', startEndless);
+  $('menuBtn').addEventListener('click', ()=>{
+    $('gameOverScreen').hidden = true;
+    $('startScreen').hidden = false;
+  });
+
+  $('muteBtn').addEventListener('click', function(){
+    sfxMuted = !sfxMuted;
+    this.setAttribute('aria-pressed', String(sfxMuted));
+    this.textContent = sfxMuted ? '🔇' : '🔊';
+  });
+  $('musicBtn').addEventListener('click', function(){
+    musicOn = !musicOn;
+    this.setAttribute('aria-pressed', String(!musicOn));
+    this.textContent = musicOn ? '🎵' : '🔕';
+    applyMusicGain();
+  });
+
+  /* ---------------------------------------------------------- */
+  /* admin bypass (client-side only - see chat note on limits)   */
+  /* ---------------------------------------------------------- */
+  const ADMIN_HASH = '540501a328d89af168f7bb8214a04a92c189899fb00faa2e1ba7a94fc36e9dcf';
+  async function checkAdminPassword(pw){
+    try{
+      const enc = new TextEncoder().encode(pw);
+      const digestBuf = await crypto.subtle.digest('SHA-256', enc);
+      const hex = Array.from(new Uint8Array(digestBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+      return hex === ADMIN_HASH;
+    }catch(err){
+      return pw === 'theadminpassword66';
+    }
+  }
+  function adminBypass(){
+    if (!gameActive) return;
+    const lvl = cur();
+    if (!lvl) return;
+    if (lvl.kind === 'final'){ winFinale(lvl.endText); return; }
+    advance();
+  }
+  function showAdmin(){ $('adminOverlay').hidden = false; modalOpen = true; $('adminMsg').textContent=''; $('adminInput').value=''; setTimeout(()=> $('adminInput').focus(), 30); }
+  function hideAdmin(){ $('adminOverlay').hidden = true; modalOpen = false; }
+  async function submitAdmin(){
+    const pw = $('adminInput').value;
+    const ok = await checkAdminPassword(pw);
+    if (ok){
+      hideAdmin();
+      adminBypass();
+      showToast('Adminmodus. Schummeln zählt auch als Sieg.');
+    } else {
+      $('adminMsg').textContent = 'Falsch.';
+      $('adminInput').value = ''; $('adminInput').focus();
+    }
+  }
+  $('adminBtn').addEventListener('click', showAdmin);
+  $('adminCancelBtn').addEventListener('click', hideAdmin);
+  $('adminSubmitBtn').addEventListener('click', submitAdmin);
+  $('adminInput').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.key==='Enter'){ e.preventDefault(); submitAdmin(); } });
+
+  /* ---------------------------------------------------------- */
+  /* leaderboard                                                  */
+  /* two implementations: Claude Artifact live-doc sync regions   */
+  /* (inClaude===true), or kvdb.io fetch (plain hosting, e.g.     */
+  /* GitHub Pages). Reads work anonymously either way; kvdb       */
+  /* writes need KVDB_BASE configured (see top of file).          */
+  /* ---------------------------------------------------------- */
+  let loadKvLeaderboards = null; // assigned below in the non-Claude branch
+  function showLeaderboard(){
+    $('leaderboardOverlay').hidden = false; modalOpen = true;
+    if (!inClaude && loadKvLeaderboards) loadKvLeaderboards();
+  }
+  function hideLeaderboard(){ $('leaderboardOverlay').hidden = true; modalOpen = false; }
+  $('lbBtn').addEventListener('click', showLeaderboard);
+  $('lbBtnStart').addEventListener('click', showLeaderboard);
+  $('viewLbFromEndBtn').addEventListener('click', showLeaderboard);
+  $('viewLbFromGameOverBtn').addEventListener('click', showLeaderboard);
+  $('lbCloseBtn').addEventListener('click', hideLeaderboard);
+  $('lbTabStory').addEventListener('click', ()=>{
+    $('lbStoryTable').hidden = false; $('lbEndlessTable').hidden = true;
+    $('lbTabStory').classList.add('active'); $('lbTabEndless').classList.remove('active');
+  });
+  $('lbTabEndless').addEventListener('click', ()=>{
+    $('lbStoryTable').hidden = true; $('lbEndlessTable').hidden = false;
+    $('lbTabEndless').classList.add('active'); $('lbTabStory').classList.remove('active');
+  });
+
+  function makeLbRow(name, display, dateStr){
+    const tr = document.createElement('tr');
+    const rankTd = document.createElement('td'); rankTd.className = 'rank';
+    const nameTd = document.createElement('td'); nameTd.className = 'name'; nameTd.textContent = name;
+    const valTd = document.createElement('td'); valTd.className = 'value'; valTd.textContent = display;
+    const dateTd = document.createElement('td'); dateTd.className = 'date'; dateTd.textContent = dateStr || '—';
+    tr.append(rankTd, nameTd, valTd, dateTd);
+    return tr;
+  }
+
+  if (inClaude){
+    $('lbNote').textContent = 'Geteilte Bestenliste – sichtbar für alle, die diesen Artifact-Link öffnen.';
+    function submitStoryTime(){
+      const nameRaw = $('storyNameInput').value.trim();
+      const name = (nameRaw || 'Anonym').slice(0,18);
+      const ms = window.__lastStoryTimeMs || 0;
+      const tbody = $('lbStoryBody');
+      const tr = makeLbRow(name, fmtTime(ms), new Date().toLocaleDateString('de-DE'));
+      tr.dataset.value = String(ms);
+      let inserted = false;
+      for (const row of Array.from(tbody.children)){
+        if (Number(row.dataset.value) > ms){ tbody.insertBefore(tr, row); inserted = true; break; }
+      }
+      if (!inserted) tbody.appendChild(tr);
+      while (tbody.children.length > 30) tbody.removeChild(tbody.lastElementChild);
+      $('storySubmitMsg').textContent = 'Eingetragen. Nice.';
+      $('storySubmitBtn').disabled = true;
+    }
+    function submitEndlessScore(){
+      const nameRaw = $('endlessNameInput').value.trim();
+      const name = (nameRaw || 'Anonym').slice(0,18);
+      const tbody = $('lbEndlessBody');
+      const tr = makeLbRow(name, String(score), new Date().toLocaleDateString('de-DE'));
+      tr.dataset.value = String(score);
+      let inserted = false;
+      for (const row of Array.from(tbody.children)){
+        if (Number(row.dataset.value) < score){ tbody.insertBefore(tr, row); inserted = true; break; }
+      }
+      if (!inserted) tbody.appendChild(tr);
+      while (tbody.children.length > 30) tbody.removeChild(tbody.lastElementChild);
+      $('endlessSubmitMsg').textContent = 'Eingetragen. Nice.';
+      $('endlessSubmitBtn').disabled = true;
+    }
+    $('storySubmitBtn').addEventListener('click', submitStoryTime);
+    $('endlessSubmitBtn').addEventListener('click', submitEndlessScore);
+    ['lbStoryBody','lbEndlessBody'].forEach(id=>{
+      $(id).addEventListener('claude:sync-off', ()=>{
+        $('storySubmitBtn').disabled = true; $('endlessSubmitBtn').disabled = true;
+        $('storySubmitMsg').textContent = 'Bestenliste in dieser Ansicht nur lokal sichtbar.';
+        $('endlessSubmitMsg').textContent = 'Bestenliste in dieser Ansicht nur lokal sichtbar.';
+      });
+    });
+  } else {
+    // plain-hosting path (GitHub Pages, local file, etc.) — kvdb.io fetch backend
+    if (!KVDB_BASE){
+      $('lbNote').textContent = 'Bestenliste ist auf dieser Seite noch nicht eingerichtet (kein kvdb.io-Bucket konfiguriert).';
+      $('storySubmitBtn').disabled = true; $('endlessSubmitBtn').disabled = true;
+    } else {
+      $('lbNote').textContent = 'Geteilte Bestenliste über kvdb.io – sichtbar für alle, die diese Seite besuchen.';
+    }
+    async function kvGet(key){
+      if (!KVDB_BASE) return [];
+      try{
+        const res = await fetch(`${KVDB_BASE}/${key}`);
+        if (res.status === 404) return [];
+        if (!res.ok) return null;
+        const text = await res.text();
+        return text ? JSON.parse(text) : [];
+      }catch(e){ return null; }
+    }
+    async function kvPut(key, data){
+      if (!KVDB_BASE) return false;
+      try{
+        const res = await fetch(`${KVDB_BASE}/${key}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        return res.ok;
+      }catch(e){ return false; }
+    }
+    function renderKvTable(tbody, entries){
+      tbody.innerHTML = '';
+      if (!entries || !entries.length){
+        tbody.appendChild(makeLbRow('—','—','—'));
+        return;
+      }
+      entries.forEach(e => tbody.appendChild(makeLbRow(e.name, e.display, e.date)));
+    }
+    loadKvLeaderboards = async function(){
+      if (!KVDB_BASE) return;
+      const [storyList, endlessList] = await Promise.all([kvGet('leaderboard_story'), kvGet('leaderboard_endless')]);
+      if (storyList) renderKvTable($('lbStoryBody'), storyList);
+      if (endlessList) renderKvTable($('lbEndlessBody'), endlessList);
+    };
+    async function submitStoryTime(){
+      if (!KVDB_BASE) return;
+      const nameRaw = $('storyNameInput').value.trim();
+      const name = (nameRaw || 'Anonym').slice(0,18);
+      const ms = window.__lastStoryTimeMs || 0;
+      $('storySubmitBtn').disabled = true; $('storySubmitMsg').textContent = 'Sende…';
+      const current = (await kvGet('leaderboard_story')) || [];
+      current.push({ name, value: ms, display: fmtTime(ms), date: new Date().toLocaleDateString('de-DE') });
+      current.sort((a,b)=> a.value - b.value);
+      const ok = await kvPut('leaderboard_story', current.slice(0,30));
+      $('storySubmitMsg').textContent = ok ? 'Eingetragen. Nice.' : 'Konnte nicht gespeichert werden (offline?).';
+      if (!ok) $('storySubmitBtn').disabled = false;
+      else renderKvTable($('lbStoryBody'), current.slice(0,30));
+    }
+    async function submitEndlessScore(){
+      if (!KVDB_BASE) return;
+      const nameRaw = $('endlessNameInput').value.trim();
+      const name = (nameRaw || 'Anonym').slice(0,18);
+      $('endlessSubmitBtn').disabled = true; $('endlessSubmitMsg').textContent = 'Sende…';
+      const current = (await kvGet('leaderboard_endless')) || [];
+      current.push({ name, value: score, display: String(score), date: new Date().toLocaleDateString('de-DE') });
+      current.sort((a,b)=> b.value - a.value);
+      const ok = await kvPut('leaderboard_endless', current.slice(0,30));
+      $('endlessSubmitMsg').textContent = ok ? 'Eingetragen. Nice.' : 'Konnte nicht gespeichert werden (offline?).';
+      if (!ok) $('endlessSubmitBtn').disabled = false;
+      else renderKvTable($('lbEndlessBody'), current.slice(0,30));
+    }
+    $('storySubmitBtn').addEventListener('click', submitStoryTime);
+    $('endlessSubmitBtn').addEventListener('click', submitEndlessScore);
+  }
+
+  setToxicity(0);
+})();
+</script>
